@@ -21,6 +21,7 @@ USER_AGENT = "hayeah/letters Berkshire source crawler"
 @dataclass(frozen=True)
 class LetterSource:
     year: int
+    role: str
     url: str
     source_path: str
     content_type: str
@@ -40,7 +41,9 @@ class BerkshireCrawler:
         self.sources_dir.mkdir(parents=True, exist_ok=True)
         index_html = self.fetch_index()
         letter_urls = self.parse_letter_urls(index_html)
-        sources = [self.fetch_letter(year, url) for year, url in letter_urls]
+        sources = []
+        for year, url in letter_urls:
+            sources.extend(self.fetch_year_sources(year, url))
         self.write_manifest(sources)
         return sources
 
@@ -82,9 +85,51 @@ class BerkshireCrawler:
             return None
         return year
 
-    def fetch_letter(self, year: int, url: str) -> LetterSource:
+    def fetch_year_sources(self, year: int, url: str) -> list[LetterSource]:
+        source_role = "landing" if 1998 <= year <= 2003 else self.role_for_url(url)
+        source = self.fetch_letter(year, source_role, url)
+        if year not in range(1997, 2004) or not source.source_path.endswith(".html"):
+            return [source]
+
+        html = Path(source.source_path).read_text(encoding="utf-8", errors="replace")
+        linked_urls = self.parse_same_year_source_urls(year, url, html)
+        if not linked_urls:
+            return [source]
+
+        sources = [source]
+        for linked_url in linked_urls:
+            sources.append(self.fetch_letter(year, self.role_for_url(linked_url), linked_url))
+        return sources
+
+    def parse_same_year_source_urls(self, year: int, page_url: str, html: str) -> list[str]:
+        soup = BeautifulSoup(html, "html.parser")
+        urls = []
+        seen = set()
+
+        for link in soup.find_all("a", href=True):
+            href = str(link["href"]).strip()
+            url = urljoin(page_url, href)
+            parsed = urlparse(url)
+            if parsed.netloc and parsed.netloc != urlparse(INDEX_URL).netloc:
+                continue
+            if self.year_from_link(href, link.get_text(" ", strip=True)) != year:
+                continue
+
+            ext = self.extension_for_url(url)
+            if ext not in {".html", ".pdf", ".txt"}:
+                continue
+            if url == page_url or url in seen:
+                continue
+
+            seen.add(url)
+            urls.append(url)
+
+        return urls
+
+    def fetch_letter(self, year: int, role: str, url: str) -> LetterSource:
         ext = self.extension_for_url(url)
-        source_path = self.sources_dir / f"{year}{ext}"
+        source_path = self.sources_dir / str(year) / f"{role}{ext}"
+        source_path.parent.mkdir(parents=True, exist_ok=True)
 
         if source_path.exists() and not self.force:
             content = source_path.read_bytes()
@@ -98,12 +143,21 @@ class BerkshireCrawler:
 
         return LetterSource(
             year=year,
+            role=role,
             url=url,
             source_path=str(source_path),
             content_type=content_type,
             bytes=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
         )
+
+    def role_for_url(self, url: str) -> str:
+        ext = self.extension_for_url(url)
+        return {
+            ".html": "letter_html",
+            ".pdf": "letter_pdf",
+            ".txt": "letter_text",
+        }.get(ext, "letter")
 
     def extension_for_url(self, url: str) -> str:
         path = urlparse(url).path.lower()
