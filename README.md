@@ -20,6 +20,14 @@ Run:
 uvx --from hayeah-pymake pymake run berkshire
 ```
 
+Useful targets:
+
+```bash
+uvx --from hayeah-pymake pymake run berkshire_index
+uvx --from hayeah-pymake pymake run berkshire_sources
+uvx --from hayeah-pymake pymake which output/berkshire/manifest.json
+```
+
 The crawl is intentionally idempotent. Existing source files are reused by default; pass `--force` to the scraper, or run pymake with `-B`, when you want a fresh download.
 
 Some years have multiple official source files. In particular, 1998-2001 have landing pages plus separate HTML and PDF letter versions, while 2002-2003 have landing pages plus PDF letters. The manifest records each source separately with a `role` such as `landing`, `letter_html`, or `letter_pdf`.
