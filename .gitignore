@@ -1,0 +1,5 @@
+/.venv/
+/.pymake/
+/output/
+__pycache__/
+*.pyc
